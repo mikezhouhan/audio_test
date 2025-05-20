@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\Lenovo\Desktop\github\audio_capture_cli\build\CMakeFiles\3339bbfb8ba54a11578da7ebd9ed0af5\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{99CF7595-7D28-31EF-9F70-351F880340BD}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

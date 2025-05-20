@@ -1,0 +1,10 @@
+^C:\USERS\LENOVO\DESKTOP\GITHUB\AUDIO_CAPTURE_CLI\BUILD\CMAKEFILES\3339BBFB8BA54A11578DA7EBD9ED0AF5\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/Lenovo/Desktop/github/audio_capture_cli -BC:/Users/Lenovo/Desktop/github/audio_capture_cli/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/Lenovo/Desktop/github/audio_capture_cli/build/AudioCaptureCLI.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
