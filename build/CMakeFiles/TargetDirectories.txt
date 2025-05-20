@@ -1,3 +1,0 @@
-C:/Users/Lenovo/Desktop/github/audio_capture_cli/build/CMakeFiles/audio_capture_cli.dir
-C:/Users/Lenovo/Desktop/github/audio_capture_cli/build/CMakeFiles/ALL_BUILD.dir
-C:/Users/Lenovo/Desktop/github/audio_capture_cli/build/CMakeFiles/ZERO_CHECK.dir
