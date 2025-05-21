@@ -15,27 +15,6 @@ bool DisableMMCSS = false;
 
 #define SAFE_RELEASE(punk) if ((punk) != NULL) { (punk)->Release(); (punk) = NULL; }
 
-//
-//  WAV file structure constants
-//
-
-//  Static RIFF header
-const BYTE WaveHeader[] = {
-    'R','I','F','F',0x00,0x00,0x00,0x00,'W','A','V','E','f','m','t',' ', 0x00, 0x00, 0x00, 0x00
-};
-
-//  Static wave DATA tag
-const BYTE WaveData[] = {'d','a','t','a'};
-
-//  Header for a WAV file
-struct WAVEHEADER {
-    DWORD dwRiff;                     // "RIFF"
-    DWORD dwSize;                     // Size
-    DWORD dwWave;                     // "WAVE"
-    DWORD dwFmt;                      // "fmt "
-    DWORD dwFmtSize;                  // Wave Format Size
-};
-
 // Print audio format parameters
 void PrintAudioParameters(const WAVEFORMATEX* WaveFormat)
 {
@@ -72,138 +51,39 @@ bool WritePcmFile(HANDLE FileHandle, const BYTE* Buffer, const size_t BufferSize
     return true;
 }
 
-// Helper function to save wave data
-bool WriteWaveFile(HANDLE FileHandle, const BYTE* Buffer, const size_t BufferSize, const WAVEFORMATEX* WaveFormat)
+// Function to save captured audio data to a PCM file
+void SaveAudioData(BYTE* CaptureBuffer, size_t BufferSize, const WAVEFORMATEX* WaveFormat, std::string fileName)
 {
-    std::cout << "Writing WAV file. Buffer size: " << BufferSize << " bytes\n";
-
-    // Calculate the total WAV file size
-    DWORD waveFileSize = sizeof(WAVEHEADER) + sizeof(WAVEFORMATEX) + WaveFormat->cbSize + sizeof(WaveData) + sizeof(DWORD) + static_cast<DWORD>(BufferSize);
-    BYTE* waveFileData = new BYTE[waveFileSize];
-    BYTE* waveFilePointer = waveFileData;
-    WAVEHEADER* waveHeader = reinterpret_cast<WAVEHEADER*>(waveFileData);
-
-    if (waveFileData == NULL)
-    {
-        printf("Unable to allocate %d bytes to hold output wave data\n", waveFileSize);
-        return false;
-    }
-
-    // Copy standard WAV header
-    CopyMemory(waveFilePointer, WaveHeader, sizeof(WaveHeader));
-    waveFilePointer += sizeof(WaveHeader);
-
-    // Update size information in file header
-    waveHeader->dwSize = waveFileSize - (2 * sizeof(DWORD));
-    waveHeader->dwFmtSize = sizeof(WAVEFORMATEX) + WaveFormat->cbSize;
-
-    // Copy WAVEFORMATEX structure
-    CopyMemory(waveFilePointer, WaveFormat, sizeof(WAVEFORMATEX) + WaveFormat->cbSize);
-    waveFilePointer += sizeof(WAVEFORMATEX) + WaveFormat->cbSize;
-
-    // Copy data header identifier
-    CopyMemory(waveFilePointer, WaveData, sizeof(WaveData));
-    waveFilePointer += sizeof(WaveData);
-    *(reinterpret_cast<DWORD*>(waveFilePointer)) = static_cast<DWORD>(BufferSize);
-    waveFilePointer += sizeof(DWORD);
-
-    // Finally copy the audio data
-    CopyMemory(waveFilePointer, Buffer, BufferSize);
-
-    // Write all data to file at once
-    DWORD bytesWritten;
-    if (!WriteFile(FileHandle, waveFileData, waveFileSize, &bytesWritten, NULL))
-    {
-        printf("Unable to write wave file: %d\n", GetLastError());
-        delete[] waveFileData;
-        return false;
-    }
-
-    if (bytesWritten != waveFileSize)
-    {
-        printf("Failed to write entire wave file\n");
-        delete[] waveFileData;
-        return false;
-    }
+    // No longer print audio parameters here since we do it at startup
     
-    delete[] waveFileData;
-    return true;
-}
-
-// Function to save captured audio data to a file (WAV or PCM)
-void SaveAudioData(BYTE* CaptureBuffer, size_t BufferSize, const WAVEFORMATEX* WaveFormat, std::string fileName, bool savePcm)
-{
-    // Print audio parameters
-    PrintAudioParameters(WaveFormat);
+    printf("Saving to filename: %s.pcm\n", fileName.c_str());
     
-    if (savePcm)
+    HANDLE pcmFile = CreateFileA(
+        (fileName + ".pcm").c_str(),
+        GENERIC_WRITE,
+        0,
+        NULL,
+        CREATE_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL
+    );
+
+    if (pcmFile == INVALID_HANDLE_VALUE)
     {
-        printf("Saving to filename: %s.pcm\n", fileName.c_str());
-        
-        HANDLE pcmFile = CreateFileA(
-            (fileName + ".pcm").c_str(),
-            GENERIC_WRITE,
-            0,
-            NULL,
-            CREATE_ALWAYS,
-            FILE_ATTRIBUTE_NORMAL,
-            NULL
-        );
+        printf("Unable to open output PCM file: %d\n", GetLastError());
+        return;
+    }
 
-        if (pcmFile == INVALID_HANDLE_VALUE)
-        {
-            printf("Unable to open output PCM file: %d\n", GetLastError());
-            return;
-        }
-
-        if (WritePcmFile(pcmFile, CaptureBuffer, BufferSize))
-        {
-            printf("Successfully wrote PCM data to %s.pcm\n", fileName.c_str());
-        }
-        else
-        {
-            printf("Failed to write PCM file\n");
-        }
-        
-        CloseHandle(pcmFile);
+    if (WritePcmFile(pcmFile, CaptureBuffer, BufferSize))
+    {
+        printf("Successfully wrote PCM data to %s.pcm\n", fileName.c_str());
     }
     else
     {
-        printf("Saving to filename: %s.wav\n", fileName.c_str());
-        
-        HANDLE waveFile = CreateFileA(
-            (fileName + ".wav").c_str(),
-            GENERIC_WRITE,
-            0,
-            NULL,
-            CREATE_ALWAYS,
-            FILE_ATTRIBUTE_NORMAL,
-            NULL
-        );
-
-        if (waveFile == INVALID_HANDLE_VALUE)
-        {
-            printf("Unable to open output WAV file: %d\n", GetLastError());
-            return;
-        }
-
-        if (WriteWaveFile(waveFile, CaptureBuffer, BufferSize, WaveFormat))
-        {
-            printf("Successfully wrote WAV data to %s.wav\n", fileName.c_str());
-        }
-        else
-        {
-            printf("Failed to write WAV file\n");
-        }
-        
-        CloseHandle(waveFile);
+        printf("Failed to write PCM file\n");
     }
-}
-
-// For backward compatibility
-void SaveWaveData(BYTE* CaptureBuffer, size_t BufferSize, const WAVEFORMATEX* WaveFormat, std::string fileName)
-{
-    SaveAudioData(CaptureBuffer, BufferSize, WaveFormat, fileName, false);
+    
+    CloseHandle(pcmFile);
 }
 
 // Function to set up audio capture device
@@ -273,10 +153,6 @@ bool HasCommandLineArg(int argc, char* argv[], const std::string& arg)
 
 int main(int argc, char* argv[])
 {
-    // Parse command line arguments - default format is now PCM
-    bool saveWav = HasCommandLineArg(argc, argv, "--format") && 
-                   HasCommandLineArg(argc, argv, "wav");
-    
     // Print welcome message
     printf("Simple Audio Capture Tool (Based on WASAPI)\n");
     printf("------------------------------------------\n\n");
@@ -305,7 +181,7 @@ int main(int argc, char* argv[])
     
     // Create output filename with timestamp
     std::string outputFilename = "audio_capture_" + GetTimestampString();
-    printf("Will save to: %s.%s\n", outputFilename.c_str(), saveWav ? "wav" : "pcm");
+    printf("Will save to: %s.pcm\n", outputFilename.c_str());
     
     // Create and initialize the capturer
     CWASAPICapture* capturer = new CWASAPICapture(pDevice, true, eConsole);
@@ -330,7 +206,8 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    // Print audio parameters in JSON format
+    // Print audio parameters in JSON format immediately after initialization
+    printf("Audio parameters:\n");
     PrintAudioParameters(capturer->MixFormat());
     
     // Calculate buffer size based on duration and audio format
@@ -377,8 +254,8 @@ int main(int argc, char* argv[])
     capturer->Stop();
     
     // Save the captured audio
-    printf("Saving captured audio to %s.%s...\n", outputFilename.c_str(), saveWav ? "wav" : "pcm");
-    SaveAudioData(captureBuffer, capturer->BytesCaptured(), capturer->MixFormat(), outputFilename, !saveWav);
+    printf("Saving captured audio to %s.pcm...\n", outputFilename.c_str());
+    SaveAudioData(captureBuffer, capturer->BytesCaptured(), capturer->MixFormat(), outputFilename);
     
     // Clean up
     delete[] captureBuffer;
