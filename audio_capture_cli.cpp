@@ -39,15 +39,15 @@ struct WAVEHEADER {
 // Print audio format parameters
 void PrintAudioParameters(const WAVEFORMATEX* WaveFormat)
 {
-    printf("\n--- Audio Format Parameters ---\n");
-    printf("Format Tag:        %u\n", WaveFormat->wFormatTag);
-    printf("Channels:          %u\n", WaveFormat->nChannels);
-    printf("Samples Per Sec:   %u\n", WaveFormat->nSamplesPerSec);
-    printf("Avg Bytes Per Sec: %u\n", WaveFormat->nAvgBytesPerSec);
-    printf("Block Align:       %u\n", WaveFormat->nBlockAlign);
-    printf("Bits Per Sample:   %u\n", WaveFormat->wBitsPerSample);
-    printf("Extra Size:        %u\n", WaveFormat->cbSize);
-    printf("------------------------------\n\n");
+    printf("{\n");
+    printf("  \"formatTag\": %u,\n", WaveFormat->wFormatTag);
+    printf("  \"channels\": %u,\n", WaveFormat->nChannels);
+    printf("  \"samplesPerSec\": %u,\n", WaveFormat->nSamplesPerSec);
+    printf("  \"avgBytesPerSec\": %u,\n", WaveFormat->nAvgBytesPerSec);
+    printf("  \"blockAlign\": %u,\n", WaveFormat->nBlockAlign);
+    printf("  \"bitsPerSample\": %u,\n", WaveFormat->wBitsPerSample);
+    printf("  \"extraSize\": %u\n", WaveFormat->cbSize);
+    printf("}\n");
 }
 
 // Helper function to save PCM data
@@ -273,9 +273,9 @@ bool HasCommandLineArg(int argc, char* argv[], const std::string& arg)
 
 int main(int argc, char* argv[])
 {
-    // Parse command line arguments
-    bool savePcm = HasCommandLineArg(argc, argv, "--format") && 
-                   HasCommandLineArg(argc, argv, "pcm");
+    // Parse command line arguments - default format is now PCM
+    bool saveWav = HasCommandLineArg(argc, argv, "--format") && 
+                   HasCommandLineArg(argc, argv, "wav");
     
     // Print welcome message
     printf("Simple Audio Capture Tool (Based on WASAPI)\n");
@@ -305,7 +305,7 @@ int main(int argc, char* argv[])
     
     // Create output filename with timestamp
     std::string outputFilename = "audio_capture_" + GetTimestampString();
-    printf("Will save to: %s.%s\n", outputFilename.c_str(), savePcm ? "pcm" : "wav");
+    printf("Will save to: %s.%s\n", outputFilename.c_str(), saveWav ? "wav" : "pcm");
     
     // Create and initialize the capturer
     CWASAPICapture* capturer = new CWASAPICapture(pDevice, true, eConsole);
@@ -329,6 +329,9 @@ int main(int argc, char* argv[])
         CoUninitialize();
         return 1;
     }
+
+    // Print audio parameters in JSON format
+    PrintAudioParameters(capturer->MixFormat());
     
     // Calculate buffer size based on duration and audio format
     int durationInMs = durationInSeconds * 1000;
@@ -374,8 +377,8 @@ int main(int argc, char* argv[])
     capturer->Stop();
     
     // Save the captured audio
-    printf("Saving captured audio to %s.%s...\n", outputFilename.c_str(), savePcm ? "pcm" : "wav");
-    SaveAudioData(captureBuffer, capturer->BytesCaptured(), capturer->MixFormat(), outputFilename, savePcm);
+    printf("Saving captured audio to %s.%s...\n", outputFilename.c_str(), saveWav ? "wav" : "pcm");
+    SaveAudioData(captureBuffer, capturer->BytesCaptured(), capturer->MixFormat(), outputFilename, !saveWav);
     
     // Clean up
     delete[] captureBuffer;
