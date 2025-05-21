@@ -7,44 +7,57 @@
 #include <mmdeviceapi.h>
 #include <audioclient.h>
 #include <audiopolicy.h>
+#include <csignal>
 #include "WASAPICapture.h"
 #include "audio_capture_cli.h"
 
 // Declare this variable because it's used in WASAPICapture.cpp
 bool DisableMMCSS = false;
 
+// Global flag for handling Ctrl+C signal
+volatile bool g_running = true;
+
+// Signal handler for Ctrl+C
+void signalHandler(int signal) {
+    if (signal == SIGINT) {
+        fprintf(stderr, "\nCtrl+C pressed. Stopping recording...\n");
+        g_running = false;
+    }
+}
+
 #define SAFE_RELEASE(punk) if ((punk) != NULL) { (punk)->Release(); (punk) = NULL; }
 
-// Print audio format parameters
+// Print audio format parameters to stdout in single line format
 void PrintAudioParameters(const WAVEFORMATEX* WaveFormat)
 {
-    printf("{\n");
-    printf("  \"formatTag\": %u,\n", WaveFormat->wFormatTag);
-    printf("  \"channels\": %u,\n", WaveFormat->nChannels);
-    printf("  \"samplesPerSec\": %u,\n", WaveFormat->nSamplesPerSec);
-    printf("  \"avgBytesPerSec\": %u,\n", WaveFormat->nAvgBytesPerSec);
-    printf("  \"blockAlign\": %u,\n", WaveFormat->nBlockAlign);
-    printf("  \"bitsPerSample\": %u,\n", WaveFormat->wBitsPerSample);
-    printf("  \"extraSize\": %u\n", WaveFormat->cbSize);
-    printf("}\n");
+    // Output single line JSON to stdout with prefix for easier parsing
+    printf("Audio parameters: {\"formatTag\":%u,\"channels\":%u,\"samplesPerSec\":%u,\"avgBytesPerSec\":%u,\"blockAlign\":%u,\"bitsPerSample\":%u,\"extraSize\":%u}\n", 
+        WaveFormat->wFormatTag,
+        WaveFormat->nChannels,
+        WaveFormat->nSamplesPerSec, 
+        WaveFormat->nAvgBytesPerSec,
+        WaveFormat->nBlockAlign,
+        WaveFormat->wBitsPerSample,
+        WaveFormat->cbSize);
+    fflush(stdout); // Ensure JSON data is immediately sent to stdout
 }
 
 // Helper function to save PCM data
 bool WritePcmFile(HANDLE FileHandle, const BYTE* Buffer, const size_t BufferSize)
 {
-    std::cout << "Writing PCM file. Buffer size: " << BufferSize << " bytes\n";
+    fprintf(stderr, "Writing PCM data. Buffer size: %zu bytes\n", BufferSize);
 
     // Write raw PCM data directly
     DWORD bytesWritten;
     if (!WriteFile(FileHandle, Buffer, static_cast<DWORD>(BufferSize), &bytesWritten, NULL))
     {
-        printf("Unable to write PCM file: %d\n", GetLastError());
+        fprintf(stderr, "Unable to write PCM data: %d\n", GetLastError());
         return false;
     }
 
     if (bytesWritten != BufferSize)
     {
-        printf("Failed to write entire PCM file\n");
+        fprintf(stderr, "Failed to write entire PCM data\n");
         return false;
     }
     
@@ -56,7 +69,7 @@ void SaveAudioData(BYTE* CaptureBuffer, size_t BufferSize, const WAVEFORMATEX* W
 {
     // No longer print audio parameters here since we do it at startup
     
-    printf("Saving to filename: %s.pcm\n", fileName.c_str());
+    fprintf(stderr, "Saving to filename: %s.pcm\n", fileName.c_str());
     
     HANDLE pcmFile = CreateFileA(
         (fileName + ".pcm").c_str(),
@@ -70,20 +83,26 @@ void SaveAudioData(BYTE* CaptureBuffer, size_t BufferSize, const WAVEFORMATEX* W
 
     if (pcmFile == INVALID_HANDLE_VALUE)
     {
-        printf("Unable to open output PCM file: %d\n", GetLastError());
+        fprintf(stderr, "Unable to open output PCM file: %d\n", GetLastError());
         return;
     }
 
     if (WritePcmFile(pcmFile, CaptureBuffer, BufferSize))
     {
-        printf("Successfully wrote PCM data to %s.pcm\n", fileName.c_str());
+        fprintf(stderr, "Successfully wrote PCM data to %s.pcm\n", fileName.c_str());
     }
     else
     {
-        printf("Failed to write PCM file\n");
+        fprintf(stderr, "Failed to write PCM file\n");
     }
     
     CloseHandle(pcmFile);
+}
+
+// Function to append captured audio data to an existing PCM file
+bool AppendAudioData(HANDLE FileHandle, BYTE* CaptureBuffer, size_t BufferSize)
+{
+    return WritePcmFile(FileHandle, CaptureBuffer, BufferSize);
 }
 
 // Function to set up audio capture device
@@ -92,7 +111,7 @@ void SetupAudioCapture(IMMDeviceEnumerator*& pEnumerator, IMMDevice*& pDevice)
     HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     if (FAILED(hr))
     {
-        printf("Failed to initialize COM: %x\n", hr);
+        fprintf(stderr, "Failed to initialize COM: %x\n", hr);
         return;
     }
 
@@ -106,7 +125,7 @@ void SetupAudioCapture(IMMDeviceEnumerator*& pEnumerator, IMMDevice*& pDevice)
     
     if (FAILED(hr))
     {
-        printf("Failed to create device enumerator: %x\n", hr);
+        fprintf(stderr, "Failed to create device enumerator: %x\n", hr);
         return;
     }
 
@@ -118,11 +137,11 @@ void SetupAudioCapture(IMMDeviceEnumerator*& pEnumerator, IMMDevice*& pDevice)
 
     if (FAILED(hr))
     {
-        printf("Failed to get default audio endpoint: %x\n", hr);
+        fprintf(stderr, "Failed to get default audio endpoint: %x\n", hr);
         return;
     }
     
-    printf("Audio device setup successful\n");
+    fprintf(stderr, "Audio device setup successful\n");
 }
 
 // Generate a timestamp string for filename
@@ -151,22 +170,58 @@ bool HasCommandLineArg(int argc, char* argv[], const std::string& arg)
     return false;
 }
 
+// Get command line argument value as integer
+int GetCommandLineArgInt(int argc, char* argv[], const std::string& arg, int defaultValue)
+{
+    for (int i = 1; i < argc - 1; i++)
+    {
+        if (std::string(argv[i]) == arg)
+        {
+            try {
+                return std::stoi(argv[i + 1]);
+            }
+            catch (...) {
+                return defaultValue;
+            }
+        }
+    }
+    return defaultValue;
+}
+
+// Get command line argument value as string
+std::string GetCommandLineArgString(int argc, char* argv[], const std::string& arg, const std::string& defaultValue)
+{
+    for (int i = 1; i < argc - 1; i++)
+    {
+        if (std::string(argv[i]) == arg)
+        {
+            return std::string(argv[i + 1]);
+        }
+    }
+    return defaultValue;
+}
+
 int main(int argc, char* argv[])
 {
-    // Print welcome message
-    printf("Simple Audio Capture Tool (Based on WASAPI)\n");
-    printf("------------------------------------------\n\n");
+    // Register signal handler for Ctrl+C
+    signal(SIGINT, signalHandler);
     
-    // Get capture duration from user
-    int durationInSeconds = 0;
-    printf("Enter capture duration in seconds: ");
-    std::cin >> durationInSeconds;
-    
-    if (durationInSeconds <= 0)
-    {
-        printf("Invalid duration. Please enter a positive number.\n");
-        return 1;
+    // Parse command line arguments
+    int bufferIntervalMs = GetCommandLineArgInt(argc, argv, "--interval", 100);
+    if (bufferIntervalMs <= 0) {
+        fprintf(stderr, "Invalid interval value. Using default: 100ms\n");
+        bufferIntervalMs = 100;
     }
+    
+    // Get output file path from command line or use default
+    std::string outputFilePath = GetCommandLineArgString(argc, argv, "--output", "cache.pcm");
+    
+    // Print welcome message
+    fprintf(stderr, "Simple Audio Capture Tool (Based on WASAPI)\n");
+    fprintf(stderr, "------------------------------------------\n");
+    fprintf(stderr, "Recording will continue until you press Ctrl+C to stop\n");
+    fprintf(stderr, "Buffer interval: %d ms\n", bufferIntervalMs);
+    fprintf(stderr, "Output file: %s\n\n", outputFilePath.c_str());
     
     // Setup COM and audio device
     IMMDeviceEnumerator* pEnumerator = NULL;
@@ -175,19 +230,38 @@ int main(int argc, char* argv[])
     SetupAudioCapture(pEnumerator, pDevice);
     if (!pDevice)
     {
-        printf("Failed to set up audio device.\n");
+        fprintf(stderr, "Failed to set up audio device.\n");
         return 1;
     }
     
-    // Create output filename with timestamp
-    std::string outputFilename = "audio_capture_" + GetTimestampString();
-    printf("Will save to: %s.pcm\n", outputFilename.c_str());
+    // Create output file
+    HANDLE pcmFile = CreateFileA(
+        outputFilePath.c_str(),
+        GENERIC_WRITE,
+        0,
+        NULL,
+        CREATE_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL
+    );
+    
+    if (pcmFile == INVALID_HANDLE_VALUE)
+    {
+        fprintf(stderr, "Unable to create output PCM file: %d\n", GetLastError());
+        SafeRelease(&pDevice);
+        SafeRelease(&pEnumerator);
+        CoUninitialize();
+        return 1;
+    }
+    
+    fprintf(stderr, "Will save to: %s\n", outputFilePath.c_str());
     
     // Create and initialize the capturer
     CWASAPICapture* capturer = new CWASAPICapture(pDevice, true, eConsole);
     if (!capturer)
     {
-        printf("Failed to create audio capturer.\n");
+        fprintf(stderr, "Failed to create audio capturer.\n");
+        CloseHandle(pcmFile);
         SafeRelease(&pDevice);
         SafeRelease(&pEnumerator);
         CoUninitialize();
@@ -197,7 +271,8 @@ int main(int argc, char* argv[])
     int targetLatency = 10; // in milliseconds
     if (!capturer->Initialize(targetLatency))
     {
-        printf("Failed to initialize audio capturer.\n");
+        fprintf(stderr, "Failed to initialize audio capturer.\n");
+        CloseHandle(pcmFile);
         capturer->Release();
         capturer = NULL;
         SafeRelease(&pDevice);
@@ -206,18 +281,21 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    // Print audio parameters in JSON format immediately after initialization
-    printf("Audio parameters:\n");
+    // Print audio parameters in JSON format immediately after initialization to stdout
+    // Note we don't add any labels or explanations, just the pure JSON
     PrintAudioParameters(capturer->MixFormat());
     
-    // Calculate buffer size based on duration and audio format
-    int durationInMs = durationInSeconds * 1000;
-    size_t captureBufferSize = capturer->SamplesPerSecond() * durationInSeconds * capturer->FrameSize();
-    BYTE* captureBuffer = new BYTE[captureBufferSize];
+    // Define buffer size to accumulate data for the interval duration
+    // We'll make the buffer large to ensure it won't overflow
+    const double safetyFactor = 2.0; // 2x safety factor
+    const double bufferDurationInSeconds = (bufferIntervalMs / 1000.0) * safetyFactor;
+    size_t bufferSize = static_cast<size_t>(capturer->SamplesPerSecond() * bufferDurationInSeconds * capturer->FrameSize());
+    BYTE* captureBuffer = new BYTE[bufferSize];
     
     if (!captureBuffer)
     {
-        printf("Failed to allocate capture buffer.\n");
+        fprintf(stderr, "Failed to allocate capture buffer.\n");
+        CloseHandle(pcmFile);
         capturer->Shutdown();
         capturer->Release();
         capturer = NULL;
@@ -227,12 +305,12 @@ int main(int argc, char* argv[])
         return 1;
     }
     
-    // Start capturing
-    printf("Starting audio capture for %d seconds...\n", durationInSeconds);
-    if (!capturer->Start(captureBuffer, captureBufferSize))
+    // Start capturing - we'll only call Start once
+    if (!capturer->Start(captureBuffer, bufferSize))
     {
-        printf("Failed to start audio capture.\n");
+        fprintf(stderr, "Failed to start audio capture.\n");
         delete[] captureBuffer;
+        CloseHandle(pcmFile);
         capturer->Shutdown();
         capturer->Release();
         capturer = NULL;
@@ -242,23 +320,56 @@ int main(int argc, char* argv[])
         return 1;
     }
     
-    // Wait for the specified duration
-    for (int i = 1; i <= durationInSeconds; i++)
-    {
-        Sleep(1000);
-        printf("\rCapturing: %d/%d seconds", i, durationInSeconds);
-    }
-    printf("\nCapture complete.\n");
+    fprintf(stderr, "Recording... Press Ctrl+C to stop\n");
+    fprintf(stderr, "Buffer size: %zu bytes (%.3f seconds of audio)\n", bufferSize, bufferDurationInSeconds);
     
-    // Stop capturing
+    int totalSeconds = 0;
+    int captureCount = 0;
+    
+    // Main recording loop
+    while (g_running)
+    {
+        // Wait for the specified interval
+        Sleep(bufferIntervalMs);
+        captureCount++;
+        
+        // Check how much data has been captured
+        size_t bytesAvailable = capturer->BytesCaptured();
+        
+        // If we have data, write it to the file and reset capture position
+        if (bytesAvailable > 0)
+        {
+            // Write captured data to file
+            if (!WritePcmFile(pcmFile, captureBuffer, bytesAvailable))
+            {
+                fprintf(stderr, "\nFailed to write audio data.\n");
+                break;
+            }
+            
+            // Flush file to make sure data is written to disk for downstream consumers
+            FlushFileBuffers(pcmFile);
+            
+            // Reset buffer for next capture without stopping the capturer
+            capturer->ResetCaptureIndex();
+        }
+        
+        // Update display every second
+        int updatesPerSecond = 1000 / bufferIntervalMs;
+        if (captureCount % updatesPerSecond == 0) {
+            totalSeconds++;
+            fprintf(stderr, "\rRecording: %d seconds", totalSeconds);
+        }
+    }
+    
+    // Now that we're done, stop the capturer
     capturer->Stop();
     
-    // Save the captured audio
-    printf("Saving captured audio to %s.pcm...\n", outputFilename.c_str());
-    SaveAudioData(captureBuffer, capturer->BytesCaptured(), capturer->MixFormat(), outputFilename);
+    fprintf(stderr, "\nRecording complete. Total duration: %d seconds\n", totalSeconds);
+    fprintf(stderr, "Audio data saved to %s\n", outputFilePath.c_str());
     
     // Clean up
     delete[] captureBuffer;
+    CloseHandle(pcmFile);
     capturer->Shutdown();
     capturer->Release();
     capturer = NULL;
@@ -266,6 +377,6 @@ int main(int argc, char* argv[])
     SafeRelease(&pEnumerator);
     CoUninitialize();
     
-    printf("Audio saved successfully. Program complete.\n");
+    fprintf(stderr, "Program complete.\n");
     return 0;
 } 

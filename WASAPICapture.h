@@ -21,6 +21,7 @@ public:
     void Shutdown();
     bool Start(BYTE* CaptureBuffer, size_t BufferSize);
     void Stop();
+    void ResetCaptureIndex() { _CurrentCaptureIndex = 0; }
     WORD ChannelCount() { return _MixFormat->nChannels; }
     UINT32 SamplesPerSecond() { return _MixFormat->nSamplesPerSec; }
     UINT32 BytesPerSample() { return _MixFormat->wBitsPerSample / 8; }
